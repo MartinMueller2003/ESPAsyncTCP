@@ -83,6 +83,9 @@ extern "C"{
 }
 #include <tcp_axtls.h>
 
+static uint32_t NumOpenTcpSessions = 0;
+static uint32_t MaxNumOpenTcpSessions = 4;
+
 /*
   Async Client Error Return Tracker
 */
@@ -493,6 +496,9 @@ void AsyncClient::_connected(std::shared_ptr<ACErrorTracker>& errorTracker, void
 
 void AsyncClient::_close(){
   if(_pcb) {
+      NumOpenTcpSessions--;
+    ASYNC_TCP_DEBUG("NumOpenTcpSessions:%u\n", NumOpenTcpSessions);
+
 #if ASYNC_TCP_SSL_ENABLED
     if(_pcb_secure){
       tcp_ssl_free(_pcb);
@@ -1212,6 +1218,20 @@ err_t AsyncServer::_accept(tcp_pcb* pcb, err_t err){
 #endif
     return ERR_OK;
   }
+    NumOpenTcpSessions++;
+    ASYNC_TCP_DEBUG("NumOpenTcpSessions:%u\n", NumOpenTcpSessions);
+
+    if(MaxNumOpenTcpSessions < NumOpenTcpSessions)
+    {
+        if(tcp_close(pcb) != ERR_OK)
+        {
+            tcp_abort(pcb);
+        }
+        ASYNC_TCP_DEBUG("Aborted session\n");
+        NumOpenTcpSessions--;
+        ASYNC_TCP_DEBUG("NumOpenTcpSessions:%u\n", NumOpenTcpSessions);
+        return ERR_ABRT;
+    }
 
   if(_connect_cb){
 #if ASYNC_TCP_SSL_ENABLED
