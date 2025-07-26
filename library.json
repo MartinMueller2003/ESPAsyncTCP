@@ -1,5 +1,6 @@
 {
   "name":"ESPAsyncTCP",
+  "version": "^2.0.0",
   "description":"Asynchronous TCP Library for ESP8266",
   "keywords":"async,tcp",
   "authors":
