@@ -110,6 +110,8 @@ class AsyncClient {
     friend class AsyncTCPbuffer;
     friend class AsyncServer;
     tcp_pcb* _pcb;
+    bool _session_counted = false;   // This accepted connection holds one of the server's session slots
+    void _release_session_slot();
     AcConnectHandler _connect_cb;
     void* _connect_cb_arg;
     AcConnectHandler _discard_cb;
