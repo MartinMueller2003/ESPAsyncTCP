@@ -110,8 +110,6 @@ class AsyncClient {
     friend class AsyncTCPbuffer;
     friend class AsyncServer;
     tcp_pcb* _pcb;
-    bool _session_counted = false;   // This accepted connection holds one of the server's session slots
-    void _release_session_slot();
     AcConnectHandler _connect_cb;
     void* _connect_cb_arg;
     AcConnectHandler _discard_cb;
@@ -129,6 +127,7 @@ class AsyncClient {
     AcConnectHandler _poll_cb;
     void* _poll_cb_arg;
     bool _pcb_busy;
+    bool _session_counted = false;   // This accepted connection holds one of the server's session slots
 #if ASYNC_TCP_SSL_ENABLED
     bool _pcb_secure;
     bool _handshake_done;
@@ -147,6 +146,7 @@ class AsyncClient {
     std::shared_ptr<ACErrorTracker> _errorTracker;
 
     void _close();
+    void _release_session_slot();
     void _connected(std::shared_ptr<ACErrorTracker>& closeAbort, void* pcb, err_t err);
     void _error(err_t err);
 #if ASYNC_TCP_SSL_ENABLED
