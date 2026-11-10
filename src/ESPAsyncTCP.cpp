@@ -228,6 +228,7 @@ AsyncClient::AsyncClient(tcp_pcb* pcb):
 AsyncClient::~AsyncClient(){
   if(_pcb)
     _close();
+  _release_session_slot();
 
   _errorTracker->clearClient();
 }
@@ -494,10 +495,20 @@ void AsyncClient::_connected(std::shared_ptr<ACErrorTracker>& errorTracker, void
   return;
 }
 
+// An accepted connection holds one of the server's session slots (see
+// AsyncServer::SetMaxNumOpenTcpSessions). Give it back exactly once, whichever of
+// _close(), _error() or the destructor runs first.
+void AsyncClient::_release_session_slot(){
+  if(_session_counted){
+    _session_counted = false;
+    NumOpenTcpSessions--;
+    ASYNC_TCP_DEBUG("NumOpenTcpSessions:%u\n", NumOpenTcpSessions);
+  }
+}
+
 void AsyncClient::_close(){
   if(_pcb) {
-      NumOpenTcpSessions--;
-    ASYNC_TCP_DEBUG("NumOpenTcpSessions:%u\n", NumOpenTcpSessions);
+    _release_session_slot();
 
 #if ASYNC_TCP_SSL_ENABLED
     if(_pcb_secure){
@@ -532,6 +543,7 @@ void AsyncClient::_error(err_t err) {
     // made to set to NULL other callbacks.
     _pcb = NULL;
   }
+  _release_session_slot();
   if(_error_cb)
     _error_cb(_error_cb_arg, this, err);
   if(_discard_cb)
@@ -1223,20 +1235,12 @@ err_t AsyncServer::_accept(tcp_pcb* pcb, err_t err){
 #endif
     return ERR_OK;
   }
-    NumOpenTcpSessions++;
-    ASYNC_TCP_DEBUG("NumOpenTcpSessions:%u\n", NumOpenTcpSessions);
-
-    if(MaxNumOpenTcpSessions < NumOpenTcpSessions)
-    {
-        if(tcp_close(pcb) != ERR_OK)
-        {
-            tcp_abort(pcb);
-        }
-        ASYNC_TCP_DEBUG("Aborted session\n");
-        NumOpenTcpSessions--;
-        ASYNC_TCP_DEBUG("NumOpenTcpSessions:%u\n", NumOpenTcpSessions);
-        return ERR_ABRT;
-    }
+  if(NumOpenTcpSessions >= MaxNumOpenTcpSessions){
+    // Refuse the connection. lwIP expects tcp_abort() together with ERR_ABRT.
+    ASYNC_TCP_DEBUG("_accept: session limit (%u) reached, connection refused\n", MaxNumOpenTcpSessions);
+    tcp_abort(pcb);
+    return ERR_ABRT;
+  }
 
   if(_connect_cb){
 #if ASYNC_TCP_SSL_ENABLED
@@ -1280,6 +1284,9 @@ err_t AsyncServer::_accept(tcp_pcb* pcb, err_t err){
       } else {
         AsyncClient *c = new (std::nothrow) AsyncClient(pcb, _ssl_ctx);
         if(c){
+          c->_session_counted = true;
+          NumOpenTcpSessions++;
+          ASYNC_TCP_DEBUG("NumOpenTcpSessions:%u\n", NumOpenTcpSessions);
           ASYNC_TCP_DEBUG("_accept[%u]: SSL connected\n", c->getConnectionId());
           c->onConnect([this](void * arg, AsyncClient *c){
             (void)arg;
@@ -1301,6 +1308,9 @@ err_t AsyncServer::_accept(tcp_pcb* pcb, err_t err){
 #endif
 
       if(c){
+        c->_session_counted = true;
+        NumOpenTcpSessions++;
+        ASYNC_TCP_DEBUG("NumOpenTcpSessions:%u\n", NumOpenTcpSessions);
         auto errorTracker = c->getACErrorTracker();
 #ifdef DEBUG_MORE
         errorTracker->onErrorEvent(
